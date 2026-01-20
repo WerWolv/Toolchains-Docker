@@ -1,0 +1,87 @@
+name: Build and Publish Cross-Toolchain Docker Images
+
+on:
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: WerWolv/Toolchain
+
+jobs:
+  generate-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      toolchains: ${{ steps.set-matrix.outputs.toolchains }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Generate toolchain matrix
+        id: set-matrix
+        run: |
+          # Find all config files in toolchains directory
+          configs=$(find toolchains -type f -name "*.config" -exec basename {} \; | jq -R -s -c 'split("\n")[:-1]')
+          echo "toolchains=$configs" >> $GITHUB_OUTPUT
+          echo "Found toolchain configs: $configs"
+
+  build-and-push:
+    needs: generate-matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        toolchain: ${{ fromJson(needs.generate-matrix.outputs.toolchains) }}
+      fail-fast: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate image name suffix
+        id: image-suffix
+        run: |
+          # Extract toolchain name without .config extension
+          name=$(echo "${{ matrix.toolchain }}" | sed 's/\.config$//')
+          echo "suffix=$name" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            suffix=-${{ steps.image-suffix.outputs.suffix }},onlatest=true
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: |
+            TOOLCHAIN_CONFIG=${{ matrix.toolchain }}
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.toolchain }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.toolchain }}
+
+      - name: Image details
+        run: |
+          echo "Toolchain: ${{ matrix.toolchain }}"
+          echo "Image tags: ${{ steps.meta.outputs.tags }}"
