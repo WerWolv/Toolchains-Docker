@@ -36,6 +36,26 @@ jobs:
       fail-fast: false
 
     steps:
+      - name: Cleanup Disk space
+        run: |
+          sudo apt remove -y '^ghc-8.*' || true
+          sudo apt remove -y '^dotnet-.*' || true
+          sudo apt remove -y '^llvm-.*' || true
+          sudo apt remove -y 'php.*' || true
+          sudo apt remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel || true
+          sudo apt autoremove -y || true
+          sudo apt clean || true
+          df -h
+          sudo rm -rf /usr/share/dotnet/ || true
+          sudo rm -rf /usr/local/graalvm/ || true
+          sudo rm -rf /usr/local/.ghcup/ || true
+          sudo rm -rf /usr/local/share/powershell || true
+          sudo rm -rf /usr/local/share/chromium || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/local/lib/node_modules || true
+          df -h
+
+
       - name: Checkout repository
         uses: actions/checkout@v6
 
@@ -74,12 +94,10 @@ jobs:
         with:
           context: .
           build-args: |
-            TOOLCHAIN_CONFIG=${{ matrix.toolchain }}
+            TOOLCHAIN_TRIPLE=${{ steps.image-suffix.outputs.suffix }}
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.toolchain }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.toolchain }}
 
       - name: Image details
         run: |

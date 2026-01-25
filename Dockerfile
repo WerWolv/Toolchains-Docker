@@ -1,4 +1,4 @@
-FROM ubuntu:22.04 AS toolchain-builder
+FROM ubuntu:24.04 AS toolchain-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -31,21 +31,24 @@ RUN git clone https://github.com/crosstool-ng/crosstool-ng.git && \
 
 ENV PATH="/opt/crosstool-ng/bin:${PATH}"
 
-WORKDIR /crosstool-build
-
-ARG TOOLCHAIN_TRIPLE
-
-RUN mkdir -p touch samples/toolchains-docker && touch samples/toolchains-docker/reported.by
-COPY toolchains/${TOOLCHAIN_TRIPLE}.config samples/toolchains-docker/crosstool.config
-
 RUN useradd -m -s /bin/bash ctng && \
     mkdir -p /crosstool-build /opt/x-tools && \
     chown -R ctng:ctng /crosstool-build /opt/x-tools
 
 USER ctng
 
-RUN ct-ng toolchains-docker && \
-    ct-ng build CT_PREFIX=/opt/x-tools
+WORKDIR /crosstool-build
+
+ARG TOOLCHAIN_TRIPLE
+
+COPY --chown=ctng:ctng toolchains/${TOOLCHAIN_TRIPLE}.config .config
+
+RUN ct-ng oldconfig && \
+    (sed -i 's/^CT_LOG_PROGRESS_BAR=.*/CT_LOG_PROGRESS_BAR=n/' .config || echo "CT_LOG_PROGRESS_BAR=n" >> .config) && \
+    (sed -i 's/^CT_PREFIX_DIR=.*/CT_PREFIX_DIR="\/opt\/x-tools\/"/' .config || echo "CT_PREFIX_DIR=\"/opt/x-tools/\"" >> .config) && \
+    (sed -i 's/^CT_GLIBC_ENABLE_DEBUG=.*/CT_GLIBC_ENABLE_DEBUG=n/' .config || echo "CT_GLIBC_ENABLE_DEBUG=n" >> .config) && \
+    ct-ng build CT_PREFIX=/opt/x-tools || \
+    (cat build.log && exit 1)
 
 FROM ubuntu:22.04
 
